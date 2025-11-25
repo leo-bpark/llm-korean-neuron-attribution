@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Neuron Attribution Tool</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .section-title {
+            font-size: 1.3em;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+        }
+
+        input[type="text"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus,
+        textarea:focus,
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        textarea {
+            min-height: 120px;
+            resize: vertical;
+            font-family: 'Courier New', monospace;
+        }
+
+        .input-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status {
+            padding: 12px;
+            border-radius: 6px;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .status.show {
+            display: block;
+        }
+
+        #visualization {
+            margin-top: 20px;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            border: 2px solid #e0e0e0;
+            min-height: 100px;
+        }
+
+        .token {
+            display: inline-block;
+            padding: 4px 8px;
+            margin: 2px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            transition: transform 0.2s;
+        }
+
+        .token:hover {
+            transform: scale(1.1);
+            z-index: 10;
+            position: relative;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .controls-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .color-legend {
+            margin-top: 15px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧠 LLM Neuron Attribution Tool</h1>
+        <p class="subtitle">MLP 뉴런의 기여도를 측정하고 입력 토큰에 시각화합니다</p>
+
+        <!-- Model Selection Section -->
+        <div class="section">
+            <div class="section-title">1. 모델 선택 및 로드</div>
+            <div class="form-group">
+                <label for="modelName">모델 이름 (HuggingFace model ID):</label>
+                <input type="text" id="modelName" placeholder="예: gpt2, microsoft/DialoGPT-small, kakaobrain/kogpt" value="gpt2">
+                <button onclick="loadModel()" id="loadModelBtn">모델 로드</button>
+                <div id="modelStatus" class="status"></div>
+            </div>
+        </div>
+
+        <!-- Input Section -->
+        <div class="section">
+            <div class="section-title">2. 입력 텍스트</div>
+            <div class="form-group">
+                <label for="inputText">분석할 텍스트 입력:</label>
+                <textarea id="inputText" placeholder="분석하고 싶은 텍스트를 입력하세요...">안녕하세요. 오늘 날씨가 좋네요.</textarea>
+            </div>
+        </div>
+
+        <!-- Neuron Selection Section -->
+        <div class="section">
+            <div class="section-title">3. 뉴런 선택</div>
+            <div class="form-group">
+                <div class="input-row">
+                    <div>
+                        <label for="layerIdx">Layer Index:</label>
+                        <input type="number" id="layerIdx" min="0" value="0" placeholder="0">
+                        <button onclick="loadNeuronInfo()" id="loadNeuronBtn" disabled>뉴런 정보 불러오기</button>
+                    </div>
+                    <div>
+                        <label for="neuronIdx">Neuron Index:</label>
+                        <input type="number" id="neuronIdx" min="0" value="0" placeholder="0">
+                    </div>
+                </div>
+                <div id="neuronStatus" class="status"></div>
+            </div>
+        </div>
+
+        <!-- Compute Attribution -->
+        <div class="section">
+            <div class="section-title">4. Attribution 계산</div>
+            <div class="form-group">
+                <div class="controls-row">
+                    <select id="attributionMethod">
+                        <option value="activation_patching">Activation Patching</option>
+                        <option value="integrated_gradients">Integrated Gradients</option>
+                    </select>
+                    <button onclick="computeAttribution()" id="computeBtn" disabled>Attribution 계산</button>
+                </div>
+                <div id="computeStatus" class="status"></div>
+            </div>
+        </div>
+
+        <!-- Visualization Section -->
+        <div class="section">
+            <div class="section-title">5. 시각화</div>
+            <div id="visualization">
+                <p style="color: #999; text-align: center;">Attribution을 계산하면 결과가 여기에 표시됩니다.</p>
+            </div>
+            <div class="color-legend" id="legend" style="display: none;">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: rgba(102, 126, 234, 0.1);"></div>
+                    <span>낮은 기여도</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: rgba(102, 126, 234, 0.5);"></div>
+                    <span>중간 기여도</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: rgba(102, 126, 234, 1.0);"></div>
+                    <span>높은 기여도</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let currentModel = null;
+        let currentLayerInfo = null;
+
+        async function loadModel() {
+            const modelName = document.getElementById('modelName').value.trim();
+            if (!modelName) {
+                showStatus('modelStatus', '모델 이름을 입력해주세요.', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('loadModelBtn');
+            btn.disabled = true;
+            btn.innerHTML = '로딩 중...<span class="loading"></span>';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/load_model`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ model_name: modelName }),
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    currentModel = modelName;
+                    showStatus('modelStatus', `✅ 모델 로드 완료: ${modelName} (${data.num_layers} layers)`, 'success');
+                    document.getElementById('loadNeuronBtn').disabled = false;
+                    document.getElementById('computeBtn').disabled = false;
+                } else {
+                    showStatus('modelStatus', `❌ 오류: ${data.detail || '알 수 없는 오류'}`, 'error');
+                }
+            } catch (error) {
+                showStatus('modelStatus', `❌ 오류: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '모델 로드';
+            }
+        }
+
+        async function loadNeuronInfo() {
+            if (!currentModel) {
+                showStatus('neuronStatus', '먼저 모델을 로드해주세요.', 'error');
+                return;
+            }
+
+            const layerIdx = parseInt(document.getElementById('layerIdx').value);
+            const btn = document.getElementById('loadNeuronBtn');
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(`${API_BASE}/api/get_neuron_info`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        model_name: currentModel,
+                        layer_idx: layerIdx
+                    }),
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    currentLayerInfo = data;
+                    showStatus('neuronStatus', 
+                        `✅ Layer ${layerIdx}: ${data.num_neurons}개의 뉴런이 있습니다.`, 
+                        'success');
+                    
+                    // Update neuron index input max
+                    document.getElementById('neuronIdx').max = data.num_neurons - 1;
+                } else {
+                    showStatus('neuronStatus', `❌ 오류: ${data.detail || '알 수 없는 오류'}`, 'error');
+                }
+            } catch (error) {
+                showStatus('neuronStatus', `❌ 오류: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function computeAttribution() {
+            if (!currentModel) {
+                showStatus('computeStatus', '먼저 모델을 로드해주세요.', 'error');
+                return;
+            }
+
+            const inputText = document.getElementById('inputText').value.trim();
+            if (!inputText) {
+                showStatus('computeStatus', '입력 텍스트를 입력해주세요.', 'error');
+                return;
+            }
+
+            const layerIdx = parseInt(document.getElementById('layerIdx').value);
+            const neuronIdx = parseInt(document.getElementById('neuronIdx').value);
+            const method = document.getElementById('attributionMethod').value;
+
+            const btn = document.getElementById('computeBtn');
+            btn.disabled = true;
+            btn.innerHTML = '계산 중...<span class="loading"></span>';
+
+            const vizDiv = document.getElementById('visualization');
+            vizDiv.innerHTML = '<p style="color: #999; text-align: center;">계산 중...</p>';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/compute_attribution`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        model_name: currentModel,
+                        input_text: inputText,
+                        layer_idx: layerIdx,
+                        neuron_idx: neuronIdx,
+                        method: method
+                    }),
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showStatus('computeStatus', 
+                        `✅ Attribution 계산 완료 (Layer ${layerIdx}, Neuron ${neuronIdx})`, 
+                        'success');
+                    visualizeAttribution(data);
+                } else {
+                    showStatus('computeStatus', `❌ 오류: ${data.detail || '알 수 없는 오류'}`, 'error');
+                    vizDiv.innerHTML = '<p style="color: #d00;">오류가 발생했습니다.</p>';
+                }
+            } catch (error) {
+                showStatus('computeStatus', `❌ 오류: ${error.message}`, 'error');
+                vizDiv.innerHTML = '<p style="color: #d00;">오류가 발생했습니다.</p>';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Attribution 계산';
+            }
+        }
+
+        function visualizeAttribution(data) {
+            const vizDiv = document.getElementById('visualization');
+            const tokens = data.tokens;
+            const attributions = data.attributions;
+            
+            // Find min and max for normalization
+            const minAtt = Math.min(...attributions);
+            const maxAtt = Math.max(...attributions);
+            const range = maxAtt - minAtt || 1;
+
+            let html = '<div style="line-height: 2.5;">';
+            
+            tokens.forEach((token, idx) => {
+                const attr = attributions[idx];
+                // Normalize to 0-1
+                const normalized = (attr - minAtt) / range;
+                
+                // Create color based on attribution (blue gradient)
+                const alpha = Math.max(0.1, normalized);
+                const color = `rgba(102, 126, 234, ${alpha})`;
+                const textColor = normalized > 0.5 ? 'white' : '#333';
+                
+                // Clean token for display
+                const displayToken = token.replace('Ġ', ' ').replace('▁', ' ');
+                
+                html += `<span class="token" style="background-color: ${color}; color: ${textColor};" 
+                           title="Attribution: ${attr.toFixed(4)}">${escapeHtml(displayToken)}</span>`;
+            });
+            
+            html += '</div>';
+            vizDiv.innerHTML = html;
+            
+            // Show legend
+            document.getElementById('legend').style.display = 'flex';
+        }
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
+        function showStatus(elementId, message, type) {
+            const statusEl = document.getElementById(elementId);
+            statusEl.textContent = message;
+            statusEl.className = `status ${type} show`;
+            
+            // Auto-hide after 5 seconds for success/info
+            if (type === 'success' || type === 'info') {
+                setTimeout(() => {
+                    statusEl.classList.remove('show');
+                }, 5000);
+            }
+        }
+
+        // Auto-load neuron info when layer index changes
+        document.getElementById('layerIdx').addEventListener('change', () => {
+            if (currentModel) {
+                loadNeuronInfo();
+            }
+        });
+    </script>
+</body>
+</html>
+
