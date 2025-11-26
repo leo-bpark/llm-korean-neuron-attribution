@@ -38,20 +38,31 @@ for concept in tqdm(data.keys()):
     
     num_layers = len(atr.means["positive"])
     num_neurons = atr.means["positive"][0].shape[0]
-    def get_neuron_info(layer_idx, neuron_index):
-        return {'pos_mean': atr.means["positive"][layer_idx][neuron_index].item(), 
-                'pos_var': atr.variances["positive"][layer_idx][neuron_index].item(), 
-                'neg_mean': atr.means["negative"][layer_idx][neuron_index].item(), 
-                'neg_var': atr.variances["negative"][layer_idx][neuron_index].item(), 
-                'corr': atr.corrs[layer_idx][neuron_index].item()}
     print("num_layers", num_layers)
     print("num_neurons", num_neurons)
 
-    results[concept] = {}
+    # Convert to layer/neuron tensor format
+    pos_mean_tensor = np.zeros((num_layers, num_neurons))
+    pos_var_tensor = np.zeros((num_layers, num_neurons))
+    neg_mean_tensor = np.zeros((num_layers, num_neurons))
+    neg_var_tensor = np.zeros((num_layers, num_neurons))
+    corr_tensor = np.zeros((num_layers, num_neurons))
+    
     for layer_idx in range(num_layers):
-        results[concept][layer_idx] = {}
         for neuron_index in range(num_neurons):
-            results[concept][layer_idx][neuron_index] = get_neuron_info(layer_idx, neuron_index)
+            pos_mean_tensor[layer_idx, neuron_index] = atr.means["positive"][layer_idx][neuron_index].item()
+            pos_var_tensor[layer_idx, neuron_index] = atr.variances["positive"][layer_idx][neuron_index].item()
+            neg_mean_tensor[layer_idx, neuron_index] = atr.means["negative"][layer_idx][neuron_index].item()
+            neg_var_tensor[layer_idx, neuron_index] = atr.variances["negative"][layer_idx][neuron_index].item()
+            corr_tensor[layer_idx, neuron_index] = atr.corrs[layer_idx][neuron_index].item()
+    
+    results[concept] = {
+        'pos_mean': pos_mean_tensor.tolist(),
+        'pos_var': pos_var_tensor.tolist(),
+        'neg_mean': neg_mean_tensor.tolist(),
+        'neg_var': neg_var_tensor.tolist(),
+        'corr': corr_tensor.tolist()
+    }
 
 with open(f"{save_dir}/neuron_stats.json", "w") as f:
     json.dump(results, f)

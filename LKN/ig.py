@@ -18,19 +18,23 @@ class BackpropHook:
             self.hidden_states = None
 
 
-def attribute(llm, tokenizer, model_name, input_text, neurons):
+def attribute(llm, tokenizer, model_name, input_text, neurons, probe_positions=None):
     tokens = tokenizer.encode(input_text, return_tensors='pt').to(llm.device)  
     embed_layer = llm.get_input_embeddings()           # nn.Embedding
     embeds = embed_layer(tokens)                       # [1, T, d]
     embeds.retain_grad()                               # 이 텐서에 grad 저장
 
+    if probe_positions is None:
+        probe_positions =  [i for i in range(len(tokens[0]))]
+        
     blocks = get_llm_block(llm, model_name)
     hooks = [BackpropHook() for _ in neurons]
+    hook_handles = []
     for hook, (target_layer, target_neuron) in zip(hooks, neurons):
-        hook.probe_positions = torch.tensor([[ -2, -1]])  # batch=1 기준
-        layer_module = blocks[target_layer]
-        layer_module.register_forward_hook(hook)
-
+        hook.probe_positions = torch.tensor([probe_positions]).to(llm.device)  # batch=1 기준
+        layer_module = blocks[target_layer].mlp.down_proj
+        hook_handle = layer_module.register_forward_hook(hook)
+        hook_handles.append(hook_handle)
     llm.zero_grad()
     output = llm(inputs_embeds=embeds)
 
@@ -53,4 +57,8 @@ def attribute(llm, tokenizer, model_name, input_text, neurons):
         # 토큰 ID를 튜플로 저장 (token_id, attr)
         # utils.py에서 token_id를 직접 디코딩할 수 있도록
         result.append((token_id, attr))
+        
+    # clean up
+    for handle in hook_handles:
+        handle.remove()
     return result
