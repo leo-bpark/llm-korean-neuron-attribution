@@ -3,6 +3,7 @@
 from LKN.store_activation import CorrelationBasedNeuronAttribution
 from LKN.utils import get_model, format_chat_template
 
+import os 
 import json
 import argparse
 import numpy as np
@@ -21,6 +22,9 @@ json_file = open("data/sample.json", "r")
 data = json.load(json_file)
 
 results = {}
+
+save_dir = f"outputs/model_info/{model_name}"
+os.makedirs(save_dir, exist_ok=True)
 
 for concept in tqdm(data.keys()):
     positive_samples = [sample for sample in data[concept]["pos"]]
@@ -49,5 +53,5 @@ for concept in tqdm(data.keys()):
         for neuron_index in range(num_neurons):
             results[concept][layer_idx][neuron_index] = get_neuron_info(layer_idx, neuron_index)
 
-with open(f"outputs/model_info/{model_name}/neuron_stats.json", "w") as f:
+with open(f"{save_dir}/neuron_stats.json", "w") as f:
     json.dump(results, f)
