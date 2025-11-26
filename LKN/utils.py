@@ -53,3 +53,20 @@ class KeyHiddenStateHook:
         
     def clear(self):
         self.hidden_states = None
+
+
+
+def format_chat_template(tokenizer, model_name, text):
+    if 'meta-llama' in model_name:
+        messages = [{"role": "system", "content": "You are a helpful AI assistant."}, 
+                    {"role": "user", "content": text}]
+    elif 'Qwen' in model_name:
+        messages = [{"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."}, 
+                    {"role": "user", "content": text}]
+    chat_formatted_text = tokenizer.apply_chat_template(
+        messages,
+        add_generation_prompt=True,
+        tokenize=False,
+        return_tensors=None
+    )
+    return chat_formatted_text
