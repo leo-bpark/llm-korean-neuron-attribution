@@ -13,6 +13,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import os
 
 from LKN.attribution import NeuronAttribution
+from LKN.utils import decode_and_merge_tokens
 
 app = FastAPI(title="LLM Neuron Attribution Tool")
 
@@ -40,14 +41,23 @@ class LoadModelRequest(BaseModel):
 class AttributionRequest(BaseModel):
     model_name: str
     input_text: str
-    layer_idx: int
-    neuron_idx: int
-    method: str = "activation_patching"  # "activation_patching" or "integrated_gradients"
+    neurons: List[List[int]]  # List of [layer_idx, neuron_idx] lists, e.g., [[27, 10101], [5, 10]]
 
 
 class NeuronInfoRequest(BaseModel):
     model_name: str
     layer_idx: int
+
+
+class EnvConfigRequest(BaseModel):
+    """Environment / runtime configuration that can be tweaked from the UI.
+
+    NOTE:
+    - CUDA 관련 환경변수(CUDA_VISIBLE_DEVICES)는 **모델 로드 전에** 설정될 때만
+      제대로 반영됩니다.
+    - 이미 로드된 모델에는 영향을 주지 않을 수 있습니다.
+    """
+    cuda_visible_devices: Optional[str] = None
 
 
 @app.get("/")
@@ -58,6 +68,37 @@ async def serve_index():
         return FileResponse(index_path)
     else:
         raise HTTPException(status_code=404, detail="Index page not found")
+
+
+@app.post("/api/set_env")
+async def set_env(req: EnvConfigRequest):
+    """Set simple environment options such as CUDA_VISIBLE_DEVICES.
+
+    FastAPI 프로세스의 os.environ 에 값을 기록해 두고,
+    이후 로드되는 모델들이 이 설정을 보도록 합니다.
+    """
+    try:
+        updated: Dict[str, str] = {}
+
+        if req.cuda_visible_devices is not None:
+            os.environ["CUDA_VISIBLE_DEVICES"] = req.cuda_visible_devices
+            updated["CUDA_VISIBLE_DEVICES"] = req.cuda_visible_devices
+
+        # 안내 메시지: 이미 로드된 모델이 있으면 효과가 제한적일 수 있음
+        has_loaded_model = len(model_cache) > 0
+
+        return {
+            "status": "success",
+            "updated": updated,
+            "has_loaded_model": has_loaded_model,
+            "message": (
+                "환경 설정이 저장되었습니다. 이미 로드된 모델에는 바로 적용되지 않을 수 있습니다."
+                if has_loaded_model
+                else "환경 설정이 저장되었습니다. 이후 로드되는 모델에 적용됩니다."
+            ),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error setting environment: {str(e)}")
 
 
 @app.post("/api/load_model")
@@ -153,57 +194,46 @@ async def get_neuron_info(request: NeuronInfoRequest):
 
 @app.post("/api/compute_attribution")
 async def compute_attribution(request: AttributionRequest):
-    """Compute attribution for a specific neuron."""
+    """Compute attribution for multiple neurons using the IG method from LKN.ig."""
     try:
         if request.model_name not in model_cache:
             raise HTTPException(status_code=404, detail="Model not loaded")
         
-        model, tokenizer, attribution_calc = model_cache[request.model_name]
-        
-        # Tokenize input
-        inputs = tokenizer(request.input_text, return_tensors="pt", padding=False)
-        input_ids = inputs["input_ids"]
-        
-        # Get tokens for visualization
-        tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
-        
-        # Compute attribution
-        if request.method == "integrated_gradients":
-            attribution_embeds = attribution_calc.compute_integrated_gradients(
-                input_ids=input_ids,
-                layer_idx=request.layer_idx,
-                neuron_idx=request.neuron_idx
-            )
-        else:  # activation_patching
-            attribution_embeds = attribution_calc.compute_activation_patching(
-                input_ids=input_ids,
-                layer_idx=request.layer_idx,
-                neuron_idx=request.neuron_idx
-            )
-        
-        # Propagate to token level (abs mean)
-        token_attributions = attribution_calc.propagate_to_tokens(
-            attribution_embeds,
-            method="abs_mean"
-        )
-        
-        # Normalize attributions for visualization (0-1 scale)
-        if token_attributions.max() > token_attributions.min():
-            normalized_attributions = (token_attributions - token_attributions.min()) / \
-                                     (token_attributions.max() - token_attributions.min())
+        # model_cache 에는 (model, tokenizer, attribution_calc) 가 들어있을 수 있으므로
+        cached = model_cache[request.model_name]
+        if isinstance(cached, tuple) and len(cached) >= 2:
+            model, tokenizer = cached[0], cached[1]
         else:
-            normalized_attributions = token_attributions
+            raise HTTPException(status_code=500, detail="Invalid model cache entry")
+        
+        # Convert neurons list to list of tuples
+        neurons = [tuple(n) for n in request.neurons]  # e.g., [(27, 10101), (5, 10)]
+        
+        # Use the attribute function from LKN.ig (same as notebook)
+        from LKN.ig import attribute
+        result = attribute(model, tokenizer, request.model_name, request.input_text, neurons)
+        
+        # result is list of (token_id, attr) tuples
+        # Use decode_and_merge_tokens to merge Korean tokens properly
+        token_list = [token_id for token_id, _ in result]
+        attr_list = [float(attr.item() if hasattr(attr, 'item') else attr) for _, attr in result]
+        merged_tokens, merged_attributions = decode_and_merge_tokens(token_list, attr_list, tokenizer)
+
+        # Normalize attributions for visualization (0-1 scale)
+        import numpy as np
+        arr = np.array(merged_attributions, dtype=float)
+        if arr.size > 0 and arr.max() > arr.min():
+            normalized = (arr - arr.min()) / (arr.max() - arr.min())
+        else:
+            normalized = arr
         
         # Prepare response
-        result = {
-            "tokens": tokens,
-            "attributions": normalized_attributions.tolist(),
-            "raw_attributions": token_attributions.tolist(),
-            "layer_idx": request.layer_idx,
-            "neuron_idx": request.neuron_idx
+        return {
+            "tokens": merged_tokens,
+            "attributions": normalized.tolist(),
+            "raw_attributions": merged_attributions,
+            "neurons": request.neurons
         }
-        
-        return result
         
     except Exception as e:
         import traceback
@@ -217,6 +247,122 @@ async def list_models():
     return {
         "models": list(model_cache.keys())
     }
+
+
+class GetBiasConceptsRequest(BaseModel):
+    model_name: str
+
+
+class GetTopKNeuronsRequest(BaseModel):
+    model_name: str
+    concept: str
+
+
+@app.post("/api/get_bias_concepts")
+async def get_bias_concepts(request: GetBiasConceptsRequest):
+    """Get list of bias concepts from top_k_neuron_results.json."""
+    try:
+        import json
+        
+        # Construct file path
+        model_path = request.model_name.replace("/", "-")
+        file_path = os.path.join(
+            PROJECT_ROOT,
+            "outputs",
+            "model_info",
+            request.model_name,
+            "top_k_neuron_results.json"
+        )
+        
+        if not os.path.exists(file_path):
+            return {
+                "concepts": [],
+                "message": f"File not found: {file_path}"
+            }
+        
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        concepts = list(data.keys())
+        
+        return {
+            "concepts": concepts,
+            "model_name": request.model_name
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading concepts: {str(e)}")
+
+
+@app.post("/api/get_topk_neurons")
+async def get_topk_neurons(request: GetTopKNeuronsRequest):
+    """Get topK neurons for a specific concept."""
+    try:
+        import json
+        
+        # Construct file path
+        file_path = os.path.join(
+            PROJECT_ROOT,
+            "outputs",
+            "model_info",
+            request.model_name,
+            "top_k_neuron_results.json"
+        )
+        
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+        
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        if request.concept not in data:
+            raise HTTPException(status_code=404, detail=f"Concept '{request.concept}' not found")
+        
+        neurons = data[request.concept]
+        
+        return {
+            "concept": request.concept,
+            "neurons": neurons,
+            "model_name": request.model_name
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading topK neurons: {str(e)}")
+
+
+class GetConceptExamplesRequest(BaseModel):
+    concept: str
+
+
+@app.post("/api/get_concept_examples")
+async def get_concept_examples(request: GetConceptExamplesRequest):
+    """Get pos/neg examples for a specific concept from sample_2.json."""
+    try:
+        import json
+        
+        # Construct file path
+        file_path = os.path.join(PROJECT_ROOT, "data", "sample_2.json")
+        
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+        
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        if request.concept not in data:
+            raise HTTPException(status_code=404, detail=f"Concept '{request.concept}' not found")
+        
+        concept_data = data[request.concept]
+        
+        return {
+            "concept": request.concept,
+            "pos": concept_data.get("pos", []),
+            "neg": concept_data.get("neg", [])
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading concept examples: {str(e)}")
 
 
 if __name__ == "__main__":
