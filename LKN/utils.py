@@ -9,10 +9,40 @@ def get_llm_block(llm, llm_name):
         raise ValueError(f"Unsupported model: {llm_name}")
     return block
 
-
-
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
+import datasets
+
+def get_dataset(concept, split, data_dir='/data/sample.json', seed = 42, proportion = 0.5):
+    data = json.load(open(data_dir, "r"))
+    concept_data = data[concept]
+    num_samples = min(len(concept_data["pos"]), len(concept_data["neg"]))
+    
+    state = np.random.get_state()
+    np.random.seed(seed)
+    indices = np.random.permutation(num_samples)[:int(num_samples * proportion)]
+    if split == "train":
+        pass # use all samples
+    else:
+        indices = np.setdiff1d(np.arange(num_samples), indices)
+    np.random.set_state(state)
+    
+    text = [] 
+    label = []
+    for index in indices:
+        text.append(concept_data["pos"][index])
+        label.append(1)
+        text.append(concept_data["neg"][index])
+        label.append(0)
+    # text, label
+    dataset = datasets.Dataset.from_list([{
+        "text": text[index],
+        "label": label[index],
+        "sample_id": index,
+    } for index in indices])
+        
+    return dataset
+
 
 def get_model(name:str, device_map="auto"):
     """

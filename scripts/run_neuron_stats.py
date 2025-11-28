@@ -71,8 +71,9 @@ for concept in tqdm(data.keys()):
         all_scores = []  
         for layer_idx in range(num_layers):
             # corr * mean (with ReLU: filter out negative pos_mean)
-            clipped_difference = np.maximum(0, results[concept]['pos_mean'][layer_idx] - results[concept]['neg_mean'][layer_idx])
-            scores = results[concept]['corr'][layer_idx] * clipped_difference
+            # clipped_difference = np.maximum(0, results[concept]['pos_mean'][layer_idx] - results[concept]['neg_mean'][layer_idx])
+            # scores = results[concept]['corr'][layer_idx] * clipped_difference
+            scores = results[concept]['pos_mean'][layer_idx] 
             all_scores.append(scores)
         all_scores = np.array(all_scores)
         top_k_neuron_indices = np.argsort(-all_scores.flatten())[:10]

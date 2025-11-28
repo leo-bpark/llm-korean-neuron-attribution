@@ -42,6 +42,7 @@ class AttributionRequest(BaseModel):
     model_name: str
     input_text: str
     neurons: List[List[int]]  # List of [layer_idx, neuron_idx] lists, e.g., [[27, 10101], [5, 10]]
+    method: str = "activation_recording"  # "activation_recording" or "ig" (Integrated Gradients)
 
 
 class NeuronInfoRequest(BaseModel):
@@ -194,7 +195,7 @@ async def get_neuron_info(request: NeuronInfoRequest):
 
 @app.post("/api/compute_attribution")
 async def compute_attribution(request: AttributionRequest):
-    """Compute attribution for multiple neurons using the IG method from LKN.ig."""
+    """Compute attribution for multiple neurons using the selected method (activation_recording or IG)."""
     try:
         if request.model_name not in model_cache:
             raise HTTPException(status_code=404, detail="Model not loaded")
@@ -209,9 +210,15 @@ async def compute_attribution(request: AttributionRequest):
         # Convert neurons list to list of tuples
         neurons = [tuple(n) for n in request.neurons]  # e.g., [(27, 10101), (5, 10)]
         
-        # Use the attribute function from LKN.ig (same as notebook)
-        from LKN.ig import attribute
-        result = attribute(model, tokenizer, request.model_name, request.input_text, neurons)
+        # Select method
+        from LKN.ig import attribute, activation_recording
+        
+        if request.method == "activation_recording":
+            result = activation_recording(model, tokenizer, request.model_name, request.input_text, neurons)
+        elif request.method == "ig":
+            result = attribute(model, tokenizer, request.model_name, request.input_text, neurons)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown method: {request.method}. Use 'activation_recording' or 'ig'")
         
         # result is list of (token_id, attr) tuples
         # Use decode_and_merge_tokens to merge Korean tokens properly
@@ -232,7 +239,8 @@ async def compute_attribution(request: AttributionRequest):
             "tokens": merged_tokens,
             "attributions": normalized.tolist(),
             "raw_attributions": merged_attributions,
-            "neurons": request.neurons
+            "neurons": request.neurons,
+            "method": request.method
         }
         
     except Exception as e:

@@ -62,3 +62,47 @@ def attribute(llm, tokenizer, model_name, input_text, neurons, probe_positions=N
     for handle in hook_handles:
         handle.remove()
     return result
+
+def activation_recording(llm, tokenizer, model_name, input_text, neurons, probe_positions=None):
+    tokens = tokenizer.encode(input_text, return_tensors='pt').to(llm.device)  
+    embed_layer = llm.get_input_embeddings()           # nn.Embedding
+    embeds = embed_layer(tokens)                       # [1, T, d]
+
+    if probe_positions is None:
+        probe_positions =  [i for i in range(len(tokens[0]))]
+        
+    blocks = get_llm_block(llm, model_name)
+    hooks = [BackpropHook() for _ in neurons]
+    hook_handles = []
+    for hook, (target_layer, target_neuron) in zip(hooks, neurons):
+        hook.probe_positions = torch.tensor([probe_positions]).to(llm.device)  # batch=1 기준
+        layer_module = blocks[target_layer].mlp.down_proj
+        hook_handle = layer_module.register_forward_hook(hook)
+        hook_handles.append(hook_handle)
+    llm.zero_grad()
+    output = llm(inputs_embeds=embeds)
+    
+    # 각 뉴런의 활성화 값을 추출하고 평균내기
+    device = embeds.device
+    neuron_activations = []
+    for hook, (target_layer, target_neuron) in zip(hooks, neurons):
+        # hidden_states: [batch, len(probe_positions), hidden_dim] (batch=1)
+        # target_neuron 인덱스의 활성화 값 추출: [len(probe_positions)]
+        hidden = hook.hidden_states.to(device)
+        # attribute 함수와 동일한 인덱싱 사용
+        neuron_activations.append(hidden[:, :, target_neuron])  # [len(probe_positions)]
+
+    
+    batch_index = 0
+    # attribute 함수와 같은 형태로 반환: [(token_id, activation), ...]
+    averaged_activations = torch.stack(neuron_activations).mean(dim=0)[batch_index]
+    token_ids = tokens[batch_index].cpu().tolist()
+    result = []
+    for token_id, activation in zip(token_ids, averaged_activations):
+        result.append((token_id, activation))
+    
+    # clean up
+    for handle in hook_handles:
+        handle.remove()
+    
+    return result

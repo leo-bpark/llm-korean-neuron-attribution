@@ -8,16 +8,14 @@ if parent_dir not in sys.path:
 
 import torch 
 from tqdm import tqdm
-from grounded_prober.prompts import formatting_prompts
-from grounded_prober.utils import get_model, get_llm_block, get_mlp_down_proj
-from grounded_prober.data import get_dataset
-import numpy as np
+from LKN.prompts import formatting_prompts
+from LKN.utils import get_model, get_llm_block, get_mlp_down_proj
+from LKN.utils import get_dataset
 
-def main(args):
+def main(args, model, tokenizer):
     args.save_dir = os.path.join(
         f'outputs/activations/',
-        f'{args.model_name}/{args.dataset_name}/{args.prompt_type}',
-        f'{args.split}',
+        f'{args.model_name}/{args.concept}/{args.split}',
     )
     os.makedirs(args.save_dir, exist_ok=True)
     # ------------------------------------------------------------------------------------
@@ -58,7 +56,7 @@ def main(args):
     value_hooks = []
     key_hook_handles = []
     value_hook_handles = []
-    model, tokenizer = get_model(args.model_name)
+    
     blocks = get_llm_block(model, args.model_name)
     args.layer_indices = list(range(len(blocks)))  # [::4] + [len(blocks) - 1] # every 4 layers and the last layer
     # choose the middle layers 
@@ -81,19 +79,11 @@ def main(args):
     # ------------------------------------------------------------------------------------
     # Main Evaluation 
     # ------------------------------------------------------------------------------------
-    from grounded_prober.data import convert_label_to_binary
     layer_key_hidden_states = {layer: [] for layer in args.layer_indices}
     layer_value_hidden_states = {layer: [] for layer in args.layer_indices}
     all_labels = []
-    dataset = get_dataset(args.dataset_name, args.split)
-    dataset = dataset.map(lambda x: {"label": convert_label_to_binary(args.dataset_name, x["answer"])})
-    min_sampples = min(len(dataset), 1000)
-    state = np.random.get_state()
-    np.random.seed(42)
-    random_indices = np.random.permutation(len(dataset))[:min_sampples]
-    np.random.set_state(state)
-    dataset = dataset.select(random_indices)
-    dataloader = formatting_prompts(args.dataset_name, args.prompt_type, args.model_name, dataset, tokenizer, args.batch_size)
+    dataset = get_dataset(args.concept, args.split, data_dir="data/sample.json")
+    dataloader = formatting_prompts(args.model_name, dataset, tokenizer, args.batch_size)
     pbar = tqdm(dataloader, desc=f"[Save Activation MLP] {args.save_dir}")
     print("--------------------------------")
     print(len(dataset))
@@ -171,10 +161,14 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_name", type=str, required=True)
-    parser.add_argument("--dataset_name", type=str, required=True)
-    parser.add_argument("--split", type=str, required=True)
-    parser.add_argument("--prompt_type", type=str, required=True)
     parser.add_argument("--batch_size", type=int, default=16)
     args = parser.parse_args()
     
-    main(args)
+    import json 
+    model, tokenizer = get_model(args.model_name)
+    dataset = json.load(open("data/sample.json", "r"))
+    for concept in dataset.keys():
+        for split in ["train", "test"]:
+            args.concept = concept
+            args.split = split
+            main(args, model, tokenizer)

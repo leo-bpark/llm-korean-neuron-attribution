@@ -392,6 +392,37 @@
             margin-bottom: 4px;
             font-size: 0.85rem;
         }
+
+        .clear-btn {
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            color: #666;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-left: 8px;
+        }
+
+        .clear-btn:hover {
+            background: #e0e0e0;
+            color: #333;
+        }
+
+        .label-with-clear {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .section-title-with-clear {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
     </style>
 </head>
 <body>
@@ -425,7 +456,10 @@
 
             <!-- Neuron Selection Section -->
             <div class="header-section" style="flex: 1.5;">
-                <div class="section-title" style="margin-bottom: 8px;">뉴런 선택</div>
+                <div class="section-title-with-clear" style="margin-bottom: 8px;">
+                    <span>뉴런 선택</span>
+                    <button onclick="clearAllNeurons()" class="clear-btn" title="모든 뉴런 제거" id="clearNeuronsBtn" style="display: none;">🗑️ 초기화</button>
+                </div>
                 <div class="form-group" style="margin-bottom: 8px;">
                     <label for="neuronPairInput" style="font-size: 0.85rem;">뉴런 (layer/neuron) 를 입력 후 Enter:</label>
                     <input
@@ -462,10 +496,20 @@
         <!-- Left Panel: Input -->
         <div class="left-panel">
             <div class="section">
-                <div class="section-title">입력 텍스트</div>
+                <div class="section-title-with-clear">
+                    <span>입력 텍스트</span>
+                    <button onclick="clearInputText()" class="clear-btn" title="텍스트 초기화">🗑️ 초기화</button>
+                </div>
                 <div class="form-group">
                     <label for="inputText">분석할 텍스트 입력:</label>
                     <textarea id="inputText" placeholder="분석하고 싶은 텍스트를 입력하세요...">안녕하세요. 오늘 날씨가 좋네요.</textarea>
+                </div>
+                <div class="form-group" style="margin-top: 8px;">
+                    <label for="methodSelect">방법 선택:</label>
+                    <select id="methodSelect" style="font-size: 0.9rem; padding: 6px 8px; margin-bottom: 8px;">
+                        <option value="activation_recording" selected>Activation Recording (기본)</option>
+                        <option value="ig">Integrated Gradients (IG)</option>
+                    </select>
                 </div>
                 <div class="form-group" style="margin-top: 8px;">
                     <button onclick="computeAttribution()" id="computeBtn" disabled style="padding: 6px 12px; font-size: 0.9rem;">계산</button>
@@ -486,6 +530,9 @@
                 <div class="section-title">Attribution 시각화</div>
                 <div id="visualization">
                     <p style="color: #999; text-align: center; padding: 40px 0;">Attribution을 계산하면 결과가 여기에 표시됩니다.</p>
+                </div>
+                <div id="methodInfo" style="margin-top: 8px; font-size: 0.8rem; color: #777; display: none;">
+                    <strong>방법:</strong> <span id="currentMethod">-</span>
                 </div>
                 <div class="color-legend" id="legend" style="display: none; margin-top: 12px;">
                     <div class="legend-item">
@@ -679,10 +726,20 @@
 
         function updateNeuronBlocks() {
             const blocksDiv = document.getElementById('neuronBlocks');
+            const clearBtn = document.getElementById('clearNeuronsBtn');
+            
             if (selectedNeurons.length === 0) {
                 blocksDiv.innerHTML = '';
+                if (clearBtn) clearBtn.style.display = 'none';
+                // Update compute button state
+                document.getElementById('computeBtn').disabled = true;
+                // Update table checkboxes and highlights
+                updateTableSelection();
                 return;
             }
+
+            // Show clear button when neurons are selected
+            if (clearBtn) clearBtn.style.display = 'inline-flex';
 
             let html = '';
             selectedNeurons.forEach(([layer, neuron]) => {
@@ -702,6 +759,20 @@
             
             // Update table checkboxes and highlights
             updateTableSelection();
+        }
+
+        function clearInputText() {
+            document.getElementById('inputText').value = '';
+            showStatus('computeStatus', '텍스트가 초기화되었습니다.', 'info');
+        }
+
+        function clearAllNeurons() {
+            if (selectedNeurons.length === 0) {
+                return;
+            }
+            selectedNeurons = [];
+            updateNeuronBlocks();
+            showStatus('neuronStatus', '모든 뉴런이 제거되었습니다.', 'info');
         }
 
         function updateTableSelection() {
@@ -751,6 +822,8 @@
             const vizDiv = document.getElementById('visualization');
             vizDiv.innerHTML = '<p style="color: #999; text-align: center;">계산 중...</p>';
 
+            const method = document.getElementById('methodSelect').value;
+            
             try {
                 const response = await fetch(`${API_BASE}/api/compute_attribution`, {
                     method: 'POST',
@@ -760,7 +833,8 @@
                     body: JSON.stringify({
                         model_name: currentModel,
                         input_text: inputText,
-                        neurons: selectedNeurons  // List of [layer, neuron] tuples
+                        neurons: selectedNeurons,  // List of [layer, neuron] tuples
+                        method: method  // "activation_recording" or "ig"
                     }),
                 });
 
@@ -768,8 +842,9 @@
                 
                 if (response.ok) {
                     const neuronStr = selectedNeurons.map(n => `${n[0]}/${n[1]}`).join(', ');
+                    const methodName = method === 'activation_recording' ? 'Activation Recording' : 'IG';
                     showStatus('computeStatus', 
-                        `✅ Attribution 계산 완료 (${neuronStr})`, 
+                        `✅ ${methodName} 계산 완료 (${neuronStr})`, 
                         'success');
                     visualizeAttribution(data);
                 } else {
@@ -789,6 +864,14 @@
             const vizDiv = document.getElementById('visualization');
             const tokens = data.tokens;
             const attributions = data.attributions;
+            const method = data.method || 'activation_recording';
+            
+            // Update method info
+            const methodInfo = document.getElementById('methodInfo');
+            const currentMethodSpan = document.getElementById('currentMethod');
+            const methodName = method === 'activation_recording' ? 'Activation Recording' : 'Integrated Gradients (IG)';
+            currentMethodSpan.textContent = methodName;
+            methodInfo.style.display = 'block';
             
             // Find min and max for normalization
             const minAtt = Math.min(...attributions);
@@ -813,8 +896,9 @@
                 // Clean token for display
                 const displayToken = token.replace('Ġ', ' ').replace('▁', ' ');
                 
+                const label = method === 'activation_recording' ? 'Activation' : 'Attribution';
                 html += `<span class="token" style="background-color: ${color}; color: ${textColor};" 
-                           title="Attribution: ${attr.toFixed(4)}">${escapeHtml(displayToken)}</span>`;
+                           title="${label}: ${attr.toFixed(4)}">${escapeHtml(displayToken)}</span>`;
             });
             
             html += '</div>';
