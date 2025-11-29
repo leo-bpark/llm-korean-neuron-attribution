@@ -34,7 +34,6 @@ def str_to_bool(value):
 def main(args):
     model_name = args.model_name
     concept = args.concept
-    split = args.split
     batch_size = args.batch_size
     lr = args.lr
     epochs = args.epochs
@@ -51,13 +50,13 @@ def main(args):
 
 
     config =  OmegaConf.create(vars(args))
-    config.save_dir = f"outputs/raw_key_probers/{model_name}/{concept}/{split}/only_last_token_{args.only_last_token}/{args.init_seed}"
+    config.save_dir = f"outputs/raw_key_probers/{model_name}/{concept}/only_last_token_{args.only_last_token}/{args.init_seed}"
     os.makedirs(config.save_dir, exist_ok=True)
     OmegaConf.save(config, f"{config.save_dir}/config.yaml")
 
-    if os.path.exists(f"{config.save_dir}/layer_0_results.json"):
-        print(f"Layer 0 results already exists for {model_name} {concept} {split} {args.only_last_token} {args.init_seed}")
-        exit(0)
+    # if os.path.exists(f"{config.save_dir}/layer_0_results.json"):
+    #     print(f"Layer 0 results already exists for {model_name} {concept} {args.only_last_token} {args.init_seed}")
+    #     exit(0)
 
     # ------------------------------------------------------------------------------------
     # Load Activations 
@@ -138,16 +137,14 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, required=True)
     parser.add_argument("--eval_every", type=int, required=True)
     parser.add_argument("--init_seed", type=int, required=True)
-    parser.add_argument("--only_last_token", type=str, required=True)
+    parser.add_argument("--only_last_token", type=str, required=False)
     args = parser.parse_args()
     
     import json 
     dataset = json.load(open("data/sample.json", "r"))
     for concept in dataset.keys():
-        for split in ["train", "test"]:
-            args.concept = concept
-            args.split = split
-            main(args)
+        args.concept = concept
+        main(args)
 
 
 

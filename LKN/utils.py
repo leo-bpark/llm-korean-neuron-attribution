@@ -13,7 +13,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 import datasets
 
-def get_dataset(concept, split, data_dir='/data/sample.json', seed = 42, proportion = 0.5):
+def get_dataset(concept, split, data_dir='/data/sample.json', seed = 42, proportion = 0.3):
     data = json.load(open(data_dir, "r"))
     concept_data = data[concept]
     num_samples = min(len(concept_data["pos"]), len(concept_data["neg"]))
@@ -36,10 +36,10 @@ def get_dataset(concept, split, data_dir='/data/sample.json', seed = 42, proport
         label.append(0)
     # text, label
     dataset = datasets.Dataset.from_list([{
-        "text": text[index],
-        "label": label[index],
-        "sample_id": index,
-    } for index in indices])
+        "text": text[i],
+        "label": label[i],
+        "sample_id": indices[i],
+    } for i in range(len(indices))])
         
     return dataset
 
