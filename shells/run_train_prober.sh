@@ -1,7 +1,8 @@
 
 model_names=(
-    'meta-llama/Meta-Llama-3.1-8B-Instruct'
-    'Qwen/Qwen2.5-7B-Instruct'
+    # 'meta-llama/Meta-Llama-3.1-8B-Instruct'
+    # 'Qwen/Qwen2.5-7B-Instruct'
+    'LGAI-EXAONE/EXAONE-3.0-7.8B-Instruct'
 )
 
 batch_size=16
@@ -10,7 +11,7 @@ init_seed=42
 lr=1e-4
 epochs=50
 eval_every=10
-only_last_token=False
+only_last_token=True
 
 for model_name in ${model_names[@]}; do
     python scripts/train_prober.py \

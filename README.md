@@ -1,5 +1,7 @@
 # LLM Korean Neuron Attribution Tool
 
+<img src="img.png">
+
 LLM의 MLP 뉴런 기여도를 측정하고 입력 토큰에 시각화하는 도구입니다.
 
 ## 주요 기능

@@ -1,13 +1,3 @@
-def get_llm_block(llm, llm_name):
-    if llm_name == "gpt2":
-        block = llm.transformer.h
-    elif 'meta-llama' in llm_name:
-        block = llm.model.layers
-    elif 'Qwen' in llm_name:
-        block = llm.model.layers
-    else:
-        raise ValueError(f"Unsupported model: {llm_name}")
-    return block
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
@@ -44,28 +34,6 @@ def get_dataset(concept, split, data_dir='/data/sample.json', seed = 42, proport
     return dataset
 
 
-def get_model(name:str, device_map="auto"):
-    """
-    Get model and tokenizer
-    Args:
-        name: model name
-    Returns:
-        model and tokenizer
-    """
-    # For decoder-only models, left padding is crucial for correct generation
-    model = AutoModelForCausalLM.from_pretrained(name, device_map=device_map, torch_dtype=torch.bfloat16)
-    tokenizer = AutoTokenizer.from_pretrained(name, device_map=device_map, padding_side="left")
-    assert tokenizer.chat_template is not None, "Tokenizer does not have a chat template"
-    # Ensure consistent token settings
-    tokenizer.pad_token = tokenizer.eos_token
-    
-    # Double-check padding side is set correctly
-    if tokenizer.padding_side != "left":
-        print(f"Warning: Tokenizer padding_side was not set to 'left'. Setting it now.")
-        tokenizer.padding_side = "left"
-    
-    return model, tokenizer
-
 
 
 class KeyHiddenStateHook:
@@ -92,6 +60,9 @@ def format_chat_template(tokenizer, model_name, text):
                     {"role": "user", "content": text}]
     elif 'Qwen' in model_name:
         messages = [{"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."}, 
+                    {"role": "user", "content": text}]
+    elif 'LGAI-EXAONE' in model_name:
+        messages = [{"role": "system", "content": "You are a helpful AI assistant."}, 
                     {"role": "user", "content": text}]
     chat_formatted_text = tokenizer.apply_chat_template(
         messages,
@@ -600,8 +571,10 @@ def get_model(name:str, device_map="auto"):
         model and tokenizer
     """
     # For decoder-only models, left padding is crucial for correct generation
-    model = AutoModelForCausalLM.from_pretrained(name, device_map=device_map, torch_dtype=torch.bfloat16)
-    tokenizer = AutoTokenizer.from_pretrained(name, device_map=device_map, padding_side="left")
+    model = AutoModelForCausalLM.from_pretrained(name, device_map=device_map, torch_dtype=torch.bfloat16, 
+                                                 trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(name, device_map=device_map, padding_side="left",
+                                              trust_remote_code=True)
     assert tokenizer.chat_template is not None, "Tokenizer does not have a chat template"
     # Ensure consistent token settings
     tokenizer.pad_token = tokenizer.eos_token
@@ -620,8 +593,13 @@ def get_llm_block(llm, llm_name):
         block = llm.model.layers
     elif 'Qwen' in llm_name:
         block = llm.model.layers
+    elif 'LGAI-EXAONE' in llm_name:
+        block = llm.transformer.h
+        
     else:
         raise ValueError(f"Unsupported model: {llm_name}")
+    print(len(block))
+    print(len(block))
     return block
 
 
@@ -630,6 +608,8 @@ def get_num_layers(llm_name):
         return 32
     elif llm_name == "Qwen/Qwen2.5-7B-Instruct":
         return 28
+    elif 'LGAI-EXAONE' in llm_name:
+        return 32
     else:
         raise ValueError(f"Unsupported model: {llm_name}")
 
@@ -638,6 +618,8 @@ def get_mlp_down_proj(llm_name, block):
         module = block.mlp.down_proj
     elif 'Qwen' in llm_name:
         module = block.mlp.down_proj
+    elif 'LGAI-EXAONE' in llm_name:
+        module = block.mlp.c_proj
     else:
         raise ValueError(f"Unsupported model: {llm_name}")
     return module
@@ -647,6 +629,8 @@ def get_mlp_up_proj(llm_name, block):
         module = block.mlp.up_proj
     elif 'Qwen' in llm_name:
         module = block.mlp.up_proj
+    elif 'LGAI-EXAONE' in llm_name:
+        module = block.mlp.c_fc_0
     else:
         raise ValueError(f"Unsupported model: {llm_name}")
     return module

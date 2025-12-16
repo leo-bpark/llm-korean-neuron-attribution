@@ -47,7 +47,10 @@ class CorrelationBasedNeuronAttribution:
             hook = KeyHiddenStateHook()
             # last six tokens
             hook.probe_positions = torch.tensor([[-6, -5, -4, -3, -2, -1]]).repeat(batch_size, 1)
-            key_activation =  blocks[layer_idx].mlp.down_proj
+            if 'LGAI-EXAONE' in self.model_name:
+                key_activation =  blocks[layer_idx].mlp.c_fc_0
+            else:
+                key_activation =  blocks[layer_idx].mlp.down_proj
             hook_handle = key_activation.register_forward_hook(hook)
             hooks.append(hook)
             hook_handles.append(hook_handle)
@@ -69,7 +72,7 @@ class CorrelationBasedNeuronAttribution:
                     output = self.model(input_ids.to(self.model.device), 
                                         attention_mask=attention_mask.to(self.model.device))
                 
-                for index, sample in enumerate(samples):
+                for index, sample in enumerate(input_ids):
                     for idx, layer_idx in enumerate(layer_indices):
                         key_hidden_states = hooks[idx].hidden_states  # Shape: [batch_size, sequence_length, hidden_size]
                         last_token_key_hidden_state = key_hidden_states[index,:,:]  # Shape: [hidden_size]

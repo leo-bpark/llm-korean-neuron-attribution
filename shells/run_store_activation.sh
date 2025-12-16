@@ -1,7 +1,9 @@
 
 model_names=(
-    'meta-llama/Meta-Llama-3.1-8B-Instruct'
+    # 'meta-llama/Meta-Llama-3.1-8B-Instruct'
     # 'Qwen/Qwen2.5-7B-Instruct'
+    'LGAI-EXAONE/EXAONE-3.0-7.8B-Instruct'
+
 )
 
 batch_size=16

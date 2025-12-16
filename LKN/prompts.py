@@ -181,6 +181,8 @@ def prepare_probe_inputs(
             messages = [{"role": "system", "content": "You are a helpful AI assistant."}, {"role": "user", "content": user_text}]
         elif 'Qwen' in model_name:
             messages = [{"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."}, {"role": "user", "content": user_text}]
+        elif 'LGAI-EXAONE' in model_name:
+            messages = [{"role": "system", "content": "You are a helpful AI assistant."}, {"role": "user", "content": user_text}]
         
         # tokenize=True returns input_ids; return_tensors=None keeps them as a list
         encoded = tokenizer.apply_chat_template(
